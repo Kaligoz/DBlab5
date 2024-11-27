@@ -1,94 +1,119 @@
-const connectDB = require('./database'); // Import connectDB correctly
-const { ObjectId } = require('mongodb'); // Import ObjectId here
+const connectDB = require('./database');  
+const { ObjectId } = require('mongodb'); 
+const readline = require('readline');
 
-async function setupDatabase() {
-  const connection = await connectDB(); // Get db and client as an object
+async function createDocument(collectionName, document) {
+  const connection = await connectDB();
+  if (!connection) return;
 
-  if (!connection) {
-    console.error("Database connection failed");
-    return;
-  }
+  const { db, client } = connection;
+  const collection = db.collection(collectionName);
 
-  const { db, client } = connection; // Destructure db and client
-  console.log("DB and Client:", db, client);
+  const result = await collection.insertOne(document);
+  console.log(`Document added to ${collectionName}:`, result.insertedId);
 
-  const teamsCollection = db.collection('Teams');
-  const playersCollection = db.collection('Players');
-  const charactersCollection = db.collection('Characters');
-  const sessionsCollection = db.collection('Sessions');
-  const weaponsCollection = db.collection('Weapons');
-
-  // Insert a sample team
-  const teamId = await teamsCollection.insertOne({
-    team_name: 'Warriors',
-    number_players: 5,
-    total_points: 1000,
-    members: []
-  });
-
-  // Insert a sample player
-  await playersCollection.insertOne({
-    username: 'PlayerOne',
-    email: 'playerone@example.com',
-    registration_date: new Date('2021-08-01T12:00:00Z'),
-    password: 'password',
-  });
-
-  // Insert a sample character
-  await charactersCollection.insertOne({
-    level: '10',
-    rank: 'Diamond',
-    class: 'Warrior',
-    player_id: new ObjectId(), 
-  });
-
-  // Insert a sample session
-  await sessionsCollection.insertOne({
-    time_started: new Date('2021-08-01T12:00:00Z'),
-    time_ended: new Date('2021-08-01T13:30:00Z'),
-    team_id: teamId.insertedId,
-  });
-
-  // Insert a sample weapon
-  await weaponsCollection.insertOne({
-    weapon_name: 'Excalibur',
-    type: 'Sword',
-    damage: 100,
-    durability: 100,
-    character_id: new ObjectId(),
-  });
-
-  console.log('Database setup complete');
-
-  // Function to run queries
-  async function runQueries() {
-    const charactersWithPlayers = await db.collection('Characters').aggregate([
-      {
-        $lookup: {
-          from: 'Players',          // The collection to join with
-          localField: 'player_id',  // The field in 'Characters' to match with 'Players'
-          foreignField: '_id',      // The field in 'Players' collection to match 'player_id' in 'Characters'
-          as: 'player_info'         // The name of the new array to store joined data
-        }
-      }
-    ]).toArray();
-    console.log(charactersWithPlayers);   
-    
-    const playersWithTeams = await db.collection('Players').aggregate([
-      {
-        $lookup: {
-          from: 'Teams',           // The collection to join with
-          localField: 'team_id',    // The field in 'Players' collection to match with 'Teams'
-          foreignField: '_id',      // The field in 'Teams' collection to match with 'team_id' in 'Players'
-          as: 'team_info'           // The name of the new array to store joined data
-        }
-      }
-    ]).toArray();
-    console.log(playersWithTeams);
-  }
-  
-  await runQueries();
-  await client.close(); 
+  await client.close();
 }
 
-setupDatabase().catch(console.error);
+async function readDocuments(collectionName, query = {}) {
+  const connection = await connectDB();
+  if (!connection) return;
+
+  const { db, client } = connection;
+  const collection = db.collection(collectionName);
+
+  const documents = await collection.find(query).toArray();
+  console.log(`Documents in ${collectionName}:`, documents);
+
+  await client.close();
+}
+
+async function updateDocument(collectionName, updateId, updates) {
+  const connection = await connectDB();
+  if (!connection) return;
+
+  const { db, client } = connection;
+  const collection = db.collection(collectionName);
+
+  const result = await collection.updateOne(
+    { _id: new ObjectId(updateId) },
+    { $set: updates }
+  );
+  console.log(`Document ${updateId} updated:`, result.matchedCount);
+
+  await client.close();
+}
+
+async function deleteDocument(collectionName, deleteId) {
+  const connection = await connectDB();
+  if (!connection) return;
+
+  const { db, client } = connection;
+  const collection = db.collection(collectionName);
+
+  const result = await collection.deleteOne({ _id: new ObjectId(deleteId) });
+  console.log(`Document ${deleteId} deleted:`, result.deletedCount);
+
+  await client.close();
+}
+
+async function runApp() {
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  function prompt(question) {
+    return new Promise((resolve) => rl.question(question, resolve));
+  }
+
+  let exit = false;
+  while (!exit) {
+    console.log('\n1. Створити документ (з використанням заготовлених даних)');
+    console.log('2. Прочитати документи');
+    console.log('3. Оновити документ');
+    console.log('4. Видалити документ');
+    console.log('5. Вийти');
+    const choice = await prompt('Виберіть опцію: ');
+
+    switch (choice) {
+      case '1':
+        // Predefined document for insertion
+        const predefinedDocument = {
+          username: "DefaultUser",
+          email: "defaultuser@example.com",
+          registration_date: new Date(),
+          password: "defaultpassword",
+        };
+        await createDocument("Players", predefinedDocument);
+        break;
+
+      case '2':
+        await readDocuments("Players"); // Adjust collection name as needed
+        break;
+
+      case '3':
+        const updateId = await prompt('Введіть ID документа для оновлення: ');
+        const updates = { username: "UpdatedUser" }; // Predefined update data
+        await updateDocument("Players", updateId, updates);
+        break;
+
+      case '4':
+        const deleteId = await prompt('Введіть ID документа для видалення: ');
+        await deleteDocument("Players", deleteId);
+        break;
+
+      case '5':
+        exit = true;
+        break;
+
+      default:
+        console.log('Невірний вибір. Спробуйте ще раз.');
+    }
+  }
+
+  rl.close();
+  console.log('Застосунок завершено.');
+}
+
+runApp().catch(console.error);
